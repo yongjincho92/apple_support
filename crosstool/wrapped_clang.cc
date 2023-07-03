@@ -260,13 +260,15 @@ static std::unique_ptr<TempFile> WriteResponseFile(
 void ProcessArgument(const std::string arg, const std::string developer_dir,
                      const std::string sdk_root, const std::string cwd,
                      bool relative_ast_path, std::string &linked_binary,
-                     std::string &dsym_path, std::string toolchain_path,
+                     std::string &dsym_path, std::string &d_file_path,
+                     std::string toolchain_path,
                      std::function<void(const std::string &)> consumer);
 
 bool ProcessResponseFile(const std::string arg, const std::string developer_dir,
                          const std::string sdk_root, const std::string cwd,
                          bool relative_ast_path, std::string &linked_binary,
-                         std::string &dsym_path, std::string toolchain_path,
+                         std::string &dsym_path, std::string &d_file_path,
+                         std::string toolchain_path,
                          std::function<void(const std::string &)> consumer) {
   auto path = arg.substr(1);
   std::ifstream original_file(path);
@@ -280,7 +282,7 @@ bool ProcessResponseFile(const std::string arg, const std::string developer_dir,
     // Arguments in response files might be quoted/escaped, so we need to
     // unescape them ourselves.
     ProcessArgument(Unescape(arg_from_file), developer_dir, sdk_root, cwd,
-                    relative_ast_path, linked_binary, dsym_path,
+                    relative_ast_path, linked_binary, dsym_path, d_file_path,
                     toolchain_path, consumer);
   }
 
@@ -336,12 +338,13 @@ std::string GetToolchainPath(const std::string &toolchain_id) {
 void ProcessArgument(const std::string arg, const std::string developer_dir,
                      const std::string sdk_root, const std::string cwd,
                      bool relative_ast_path, std::string &linked_binary,
-                     std::string &dsym_path, std::string toolchain_path,
+                     std::string &dsym_path, std::string &d_file_path, 
+                     std::string toolchain_path,
                      std::function<void(const std::string &)> consumer) {
   auto new_arg = arg;
   if (arg[0] == '@') {
     if (ProcessResponseFile(arg, developer_dir, sdk_root, cwd,
-                            relative_ast_path, linked_binary, dsym_path,
+                            relative_ast_path, linked_binary, dsym_path, d_file_path,
                             toolchain_path, consumer)) {
       return;
     }
@@ -374,6 +377,11 @@ void ProcessArgument(const std::string arg, const std::string developer_dir,
     }
   }
 
+  size_t extension_position = arg.find_last_of(".");
+  if (extension_position != std::string::npos && arg.substr(extension_position) == ".d") {
+      d_file_path = cwd + "/" + arg;
+  }
+
   consumer(new_arg);
 }
 
@@ -402,7 +410,7 @@ int main(int argc, char *argv[]) {
 
   std::string developer_dir = GetMandatoryEnvVar("DEVELOPER_DIR");
   std::string sdk_root = GetMandatoryEnvVar("SDKROOT");
-  std::string linked_binary, dsym_path;
+  std::string linked_binary, dsym_path, d_file_path;
 
   const std::string cwd = GetCurrentDirectory();
   std::vector<std::string> invocation_args = {"/usr/bin/xcrun", tool_name};
@@ -416,7 +424,7 @@ int main(int argc, char *argv[]) {
     std::string arg(argv[i]);
 
     ProcessArgument(arg, developer_dir, sdk_root, cwd, relative_ast_path,
-                    linked_binary, dsym_path, toolchain_path, consumer);
+                    linked_binary, dsym_path, d_file_path, toolchain_path, consumer);
   }
 
   // Special mode that only prints the command. Used for testing.
@@ -430,8 +438,11 @@ int main(int argc, char *argv[]) {
   auto response_file = WriteResponseFile(processed_args);
   invocation_args.push_back("@" + response_file->GetPath());
 
+  // Check to see if we should postprocess dotd files.
+  bool postprocess_dotd = !d_file_path.empty();
+
   // Check to see if we should postprocess with dsymutil.
-  bool postprocess = false;
+  bool postprocess_dsym = false;
   if ((!linked_binary.empty()) || (!dsym_path.empty())) {
     if ((linked_binary.empty()) || (dsym_path.empty())) {
       const char *missing_dsym_flag;
@@ -445,7 +456,7 @@ int main(int argc, char *argv[]) {
                 << missing_dsym_flag << " must be defined\n";
       return 1;
     } else {
-      postprocess = true;
+      postprocess_dsym = true;
     }
   }
 
@@ -453,7 +464,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  if (!postprocess) {
+  if (!postprocess_dsym && !postprocess_dotd) {
     return 0;
   }
 
