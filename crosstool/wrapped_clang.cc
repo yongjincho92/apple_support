@@ -468,16 +468,50 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  std::vector<std::string> dsymutil_args = {"/usr/bin/xcrun",
+  if (postprocess_dotd) {
+    std::ifstream original_file_stream(d_file_path);
+    if (!original_file_stream.good()) {
+      std::cerr << "Failed to read " << d_file_path << std::endl; 
+      return 1;
+    }
+    auto temporary_dotdfile = TempFile::Create("dotd_post_processing.XXXXXX");
+    std::ofstream temporary_file_stream(temporary_dotdfile->GetPath());
+    std::string line;
+    while (std::getline(original_file_stream, line)) {
+      size_t cwd_position = line.find(cwd);
+      if (cwd_position != std::string::npos) {
+        auto relative_path = line.erase(cwd_position, cwd.length() + 1); // +1 for "/" in path
+        temporary_file_stream << relative_path << std::endl;
+      } else {
+        temporary_file_stream << line << std::endl;
+      }
+    }
+    if (!original_file_stream.eof()) {
+      std::cerr << "Failed to read till the end " << d_file_path  << strerror(errno) << std::endl; 
+      return 1;
+    }
+    original_file_stream.close();
+    std::remove(d_file_path.c_str());
+    if (std::rename(temporary_dotdfile->GetPath().c_str(), d_file_path.c_str())) {
+      std::cerr << "Failed to rename " + temporary_dotdfile->GetPath() << " to " 
+                << d_file_path << strerror(errno) << std::endl; 
+      return 1;
+    }
+  }
+
+  if (postprocess_dsym) {
+    std::vector<std::string> dsymutil_args = {"/usr/bin/xcrun",
                                             "dsymutil",
                                             linked_binary,
                                             "-o",
                                             dsym_path,
                                             "--flat",
                                             "--no-swiftmodule-timestamp"};
-  if (!RunSubProcess(dsymutil_args)) {
-    return 1;
+    if (!RunSubProcess(dsymutil_args)) {
+      return 1;
+    }
   }
+
 
   return 0;
 }
