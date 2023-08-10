@@ -2163,6 +2163,30 @@ def _impl(ctx):
         ],
     )
 
+    indexstore_files_feature = feature(
+        name = "indexstore_files",
+        flag_sets = [
+            flag_set(
+                actions = [
+                    # ACTION_NAMES.assemble,
+                    # ACTION_NAMES.preprocess_assemble,
+                    ACTION_NAMES.c_compile,
+                    ACTION_NAMES.cpp_compile,
+                    ACTION_NAMES.cpp_module_compile,
+                    ACTION_NAMES.objc_compile,
+                    ACTION_NAMES.objcpp_compile,
+                    ACTION_NAMES.cpp_header_parsing,
+                ],
+                flag_groups = [
+                    flag_group(
+                        flags = ["-index-store-path", "%{indexstore_files}", "-index-ignore-system-symbols"],
+                        expand_if_available = "indexstore_files",
+                    ),
+                ],
+            ),
+        ],
+    )
+
     preprocessor_defines_feature = feature(
         name = "preprocessor_defines",
         enabled = True,
@@ -2481,6 +2505,7 @@ def _impl(ctx):
         sysroot_feature,
         dependency_file_feature,
         serialized_diagnostics_file_feature,
+        indexstore_files_feature,
         pic_feature,
         per_object_debug_info_feature,
         preprocessor_defines_feature,
