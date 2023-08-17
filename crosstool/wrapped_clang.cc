@@ -28,6 +28,7 @@
 #include <spawn.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <array>
@@ -261,6 +262,8 @@ void ProcessArgument(const std::string arg, const std::string developer_dir,
                      const std::string sdk_root, const std::string cwd,
                      bool relative_ast_path, std::string &linked_binary,
                      std::string &dsym_path, std::string &d_file_path,
+                     std::string &original_indexstore_path, 
+                     std::string &global_indexstore_path, std::string &output_file_path,
                      std::string toolchain_path,
                      std::function<void(const std::string &)> consumer);
 
@@ -268,6 +271,7 @@ bool ProcessResponseFile(const std::string arg, const std::string developer_dir,
                          const std::string sdk_root, const std::string cwd,
                          bool relative_ast_path, std::string &linked_binary,
                          std::string &dsym_path, std::string &d_file_path,
+                         std::string &original_indexstore_path, std::string &global_indexstore_path, std::string &output_file_path,
                          std::string toolchain_path,
                          std::function<void(const std::string &)> consumer) {
   auto path = arg.substr(1);
@@ -283,6 +287,7 @@ bool ProcessResponseFile(const std::string arg, const std::string developer_dir,
     // unescape them ourselves.
     ProcessArgument(Unescape(arg_from_file), developer_dir, sdk_root, cwd,
                     relative_ast_path, linked_binary, dsym_path, d_file_path,
+                    original_indexstore_path, global_indexstore_path, output_file_path,
                     toolchain_path, consumer);
   }
 
@@ -338,13 +343,16 @@ std::string GetToolchainPath(const std::string &toolchain_id) {
 void ProcessArgument(const std::string arg, const std::string developer_dir,
                      const std::string sdk_root, const std::string cwd,
                      bool relative_ast_path, std::string &linked_binary,
-                     std::string &dsym_path, std::string &d_file_path, 
+                     std::string &dsym_path, std::string &d_file_path,
+                     std::string &original_indexstore_path, 
+                     std::string &global_indexstore_path, std::string &output_file_path,
                      std::string toolchain_path,
                      std::function<void(const std::string &)> consumer) {
   auto new_arg = arg;
   if (arg[0] == '@') {
     if (ProcessResponseFile(arg, developer_dir, sdk_root, cwd,
                             relative_ast_path, linked_binary, dsym_path, d_file_path,
+                            original_indexstore_path, global_indexstore_path, output_file_path,
                             toolchain_path, consumer)) {
       return;
     }
@@ -379,13 +387,27 @@ void ProcessArgument(const std::string arg, const std::string developer_dir,
 
   size_t extension_position = arg.find_last_of(".");
   if (extension_position != std::string::npos && arg.substr(extension_position) == ".d") {
-      d_file_path = cwd + "/" + arg;
+    d_file_path = cwd + "/" + arg;
+  }
+
+  if (extension_position != std::string::npos && arg.substr(extension_position) == ".indexstore") {
+    original_indexstore_path = cwd + "/" + arg;
+    new_arg = global_indexstore_path;
+  }
+
+  if (extension_position != std::string::npos && arg.substr(extension_position) == ".o") {
+    output_file_path = cwd + "/" + arg;
   }
 
   consumer(new_arg);
 }
 
 }  // namespace
+
+inline bool path_exists(const std::string& path) {
+  struct stat buffer;   
+  return (stat (path.c_str(), &buffer) == 0); 
+}
 
 int main(int argc, char *argv[]) {
   std::string tool_name;
@@ -411,8 +433,15 @@ int main(int argc, char *argv[]) {
   std::string developer_dir = GetMandatoryEnvVar("DEVELOPER_DIR");
   std::string sdk_root = GetMandatoryEnvVar("SDKROOT");
   std::string linked_binary, dsym_path, d_file_path;
+  std::string original_indexstore_path, global_indexstore_path, output_file_path, index_import_path; 
 
   const std::string cwd = GetCurrentDirectory();
+  if (path_exists(cwd + "/" + "../../external/build_bazel_apple_support_index_import/index-import")) {
+    global_indexstore_path = cwd + "/" + "bazel-out" + "/" + "_global_index_store";
+    index_import_path = cwd + "/" + "../../external/build_bazel_apple_support_index_import/index-import";
+    // index_import_path = "/Users/ycho/Snapchat/dev/index-import/build/index-import";
+  }
+
   std::vector<std::string> invocation_args = {"/usr/bin/xcrun", tool_name};
   std::vector<std::string> processed_args = {};
 
@@ -424,8 +453,9 @@ int main(int argc, char *argv[]) {
     std::string arg(argv[i]);
 
     ProcessArgument(arg, developer_dir, sdk_root, cwd, relative_ast_path,
-                    linked_binary, dsym_path, d_file_path, toolchain_path, consumer);
-  }
+                    linked_binary, dsym_path, d_file_path, original_indexstore_path,
+                    global_indexstore_path, output_file_path, toolchain_path, consumer);
+  }  
 
   // Special mode that only prints the command. Used for testing.
   if (getenv("__WRAPPED_CLANG_LOG_ONLY")) {
@@ -438,6 +468,8 @@ int main(int argc, char *argv[]) {
   auto response_file = WriteResponseFile(processed_args);
   invocation_args.push_back("@" + response_file->GetPath());
 
+  bool copy_indexstore = !original_indexstore_path.empty() && !output_file_path.empty();
+  
   // Check to see if we should postprocess dotd files.
   bool postprocess_dotd = !d_file_path.empty();
 
@@ -464,8 +496,21 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  if (!postprocess_dsym && !postprocess_dotd) {
+  if (!postprocess_dsym && !postprocess_dotd && !copy_indexstore) {
     return 0;
+  }
+
+  if (copy_indexstore) { 
+    auto file_prefix_map = "--file-prefix-map=" + cwd + "=.";
+    std::vector<std::string> index_import_args = {index_import_path, 
+                                            file_prefix_map,
+                                            "-import-output-file",
+                                            output_file_path,
+                                            global_indexstore_path,
+                                            original_indexstore_path};
+    if (!RunSubProcess(index_import_args)) {
+      return 1;
+    }
   }
 
   if (postprocess_dotd) {
