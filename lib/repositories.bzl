@@ -46,4 +46,20 @@ def apple_support_dependencies():
         sha256 = "74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
     )
 
+    _maybe(
+        http_archive,
+        name = "build_bazel_apple_support_index_import",
+        build_file_content = """
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+package(default_visibility = ["//visibility:public"])
+native_binary(
+    name = "index_import",
+    src = "index-import",
+    out = "index-import",
+)
+""",
+        urls = ["https://github.com/MobileNativeFoundation/index-import/releases/download/5.8.0.1/index-import.tar.gz"],
+        sha256 = "28c1ffa39d99e74ed70623899b207b41f79214c498c603915aef55972a851a15",
+    )
+
     apple_cc_configure()
