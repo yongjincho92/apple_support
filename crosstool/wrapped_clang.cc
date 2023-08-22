@@ -58,8 +58,9 @@ const char *Basename(const char *filepath) {
   return base ? (base + 1) : filepath;
 }
 
+// Returns the dir name of the given filepath. For example, given 
+// /foo/bar/baz.txt, returns '/foo/bar'.
 const std::string Dirname(const char *filepath) { 
-  const char *base = strrchr(filepath, '/');
   std::string path = std::string(filepath);
   std::string dirname = path.substr(0, path.find_last_of('/'));
   return dirname;
@@ -397,13 +398,17 @@ void ProcessArgument(const std::string arg, const std::string developer_dir,
     d_file_path = cwd + "/" + arg;
   }
 
-  if (extension_position != std::string::npos && arg.substr(extension_position) == ".indexstore") {
-    original_indexstore_path = cwd + "/" + arg;
-    new_arg = global_indexstore_path;
-  }
-
-  if (extension_position != std::string::npos && arg.substr(extension_position) == ".o") {
-    output_file_path = cwd + "/" + arg;
+  // global_indexstore_path should be non-empty when global indexstore feature is enabled. 
+  // If enabled, replace --index-store-path flag value with global indexstore path and save the 
+  // original indexstore path for copying back later.
+  if (!global_indexstore_path.empty()) { 
+    if (extension_position != std::string::npos && arg.substr(extension_position) == ".indexstore") {
+      original_indexstore_path = cwd + "/" + arg;
+      new_arg = global_indexstore_path;
+    }
+    if (extension_position != std::string::npos && arg.substr(extension_position) == ".o") {
+      output_file_path = cwd + "/" + arg;
+    }
   }
 
   consumer(new_arg);
@@ -440,12 +445,22 @@ int main(int argc, char *argv[]) {
   std::string developer_dir = GetMandatoryEnvVar("DEVELOPER_DIR");
   std::string sdk_root = GetMandatoryEnvVar("SDKROOT");
   std::string linked_binary, dsym_path, d_file_path;
+  // variables for indexstore binaries and outputs
   std::string original_indexstore_path, global_indexstore_path, output_file_path, index_import_path; 
 
   const std::string cwd = GetCurrentDirectory();
 
-  global_indexstore_path = cwd + "/" + "bazel-out" + "/" + "_global_index_store";
-  index_import_path = cwd + "/" + Dirname(argv[0]) + "/" + "index-import";
+  // check if global indexstore feature is used. If true, use global indexstore for all compile actions 
+  // passing --index-store-path flag and copy indexstore data corresponding to the action output file to 
+  // action specific value of --index-store-path flag. This change is modeled after a rules_swift change 
+  // (https://github.com/bazelbuild/rules_swift/pull/567)
+  bool use_global_indexstore = getenv("GLOBAL_INDEXSTORE") != nullptr;
+  global_indexstore_path = "";
+  index_import_path = "";
+  if (use_global_indexstore) {
+    global_indexstore_path = cwd + "/" + "bazel-out" + "/" + "_global_index_store";
+    index_import_path = cwd + "/" + Dirname(argv[0]) + "/" + "index-import";
+  }
   
   std::vector<std::string> invocation_args = {"/usr/bin/xcrun", tool_name};
   std::vector<std::string> processed_args = {};
@@ -473,7 +488,7 @@ int main(int argc, char *argv[]) {
   auto response_file = WriteResponseFile(processed_args);
   invocation_args.push_back("@" + response_file->GetPath());
 
-  bool copy_indexstore = !original_indexstore_path.empty() && !output_file_path.empty();
+  bool copy_indexstore = use_global_indexstore;
   
   // Check to see if we should postprocess dotd files.
   bool postprocess_dotd = !d_file_path.empty();

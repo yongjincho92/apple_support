@@ -2168,8 +2168,6 @@ def _impl(ctx):
         flag_sets = [
             flag_set(
                 actions = [
-                    # ACTION_NAMES.assemble,
-                    # ACTION_NAMES.preprocess_assemble,
                     ACTION_NAMES.c_compile,
                     ACTION_NAMES.cpp_compile,
                     ACTION_NAMES.cpp_module_compile,
@@ -2181,6 +2179,28 @@ def _impl(ctx):
                     flag_group(
                         flags = ["-index-store-path", "%{indexstore_files}", "-index-ignore-system-symbols"],
                         expand_if_available = "indexstore_files",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    use_global_indexstore_feature = feature(
+        name = "use_global_indexstore",
+        env_sets = [
+            env_set(
+                actions = [
+                    ACTION_NAMES.c_compile,
+                    ACTION_NAMES.cpp_compile,
+                    ACTION_NAMES.cpp_module_compile,
+                    ACTION_NAMES.objc_compile,
+                    ACTION_NAMES.objcpp_compile,
+                    ACTION_NAMES.cpp_header_parsing,
+                ],
+                env_entries = [
+                    env_entry(
+                        key = "GLOBAL_INDEXSTORE",
+                        value = "true",
                     ),
                 ],
             ),
@@ -2506,6 +2526,7 @@ def _impl(ctx):
         dependency_file_feature,
         serialized_diagnostics_file_feature,
         indexstore_files_feature,
+        use_global_indexstore_feature,
         pic_feature,
         per_object_debug_info_feature,
         preprocessor_defines_feature,
