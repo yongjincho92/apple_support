@@ -58,6 +58,13 @@ const char *Basename(const char *filepath) {
   return base ? (base + 1) : filepath;
 }
 
+const std::string Dirname(const char *filepath) { 
+  const char *base = strrchr(filepath, '/');
+  std::string path = std::string(filepath);
+  std::string dirname = path.substr(0, path.find_last_of('/'));
+  return dirname;
+}
+
 // Unescape and unquote an argument read from a line of a response file.
 static std::string Unescape(const std::string &arg) {
   std::string result;
@@ -436,12 +443,10 @@ int main(int argc, char *argv[]) {
   std::string original_indexstore_path, global_indexstore_path, output_file_path, index_import_path; 
 
   const std::string cwd = GetCurrentDirectory();
-  if (path_exists(cwd + "/" + "../../external/build_bazel_apple_support_index_import/index-import")) {
-    global_indexstore_path = cwd + "/" + "bazel-out" + "/" + "_global_index_store";
-    index_import_path = cwd + "/" + "../../external/build_bazel_apple_support_index_import/index-import";
-    // index_import_path = "/Users/ycho/Snapchat/dev/index-import/build/index-import";
-  }
 
+  global_indexstore_path = cwd + "/" + "bazel-out" + "/" + "_global_index_store";
+  index_import_path = cwd + "/" + Dirname(argv[0]) + "/" + "index-import";
+  
   std::vector<std::string> invocation_args = {"/usr/bin/xcrun", tool_name};
   std::vector<std::string> processed_args = {};
 
